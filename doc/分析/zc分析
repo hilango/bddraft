@@ -1,3 +1,26 @@
+
+{{端
+
+Server
+Client
+}}
+
+
+{{角色
+Leader|领袖
+Follower|群众
+Candidate|候选人
+
+}}
+
+
+{{实例
+
+
+
+}}
+
+
 {{log entry
 command term //标示是那一轮选举
 index  //每次选举都会递增
