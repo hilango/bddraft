@@ -1,0 +1,37 @@
+
+专用名词
+{{
+leader selection|领导选取
+log replication|日志复制
+safety|安全性
+overlapping majorities|重叠大多数
+
+角色
+    Leader（领袖）
+    Follower（群众）
+    Candidate（候选人）
+
+failover
+
+
+脑裂
+raft group
+raft leader
+region leader
+stale read|陈旧的数据
+raft lease|任期
+Term|任期
+
+
+少数派
+多数派
+
+
+
+
+
+
+}}
+
+
+

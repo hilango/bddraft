@@ -138,10 +138,77 @@ LeaderCommit 领导人已经提交的日志的索引值
 Term 当前的任期号，用于领导人去更新自己
 Success 跟随者包含了匹配上prevLogIndex和preLogTerm 的日志时间为真
 
+log replication-1|日志
 
+Heartbaet & Append Entries
+Heartbaet & Append Entries
+Only log entry !
 
+log replication - 2
+Leader commit !
 
-
+log replication - 3
+Heartbaet & commit
+Heartbaet & commit
+Follower commit !
 }
+
+------------------
+
+常见疑难杂症
+if a node reply timeout ？
+F_2 如何保持数据一致性  ?  Leader会重试 !
+
+Leader crash
+Log entry Ack
+Leader在本地commit后, 发给follower commit 之前crash!Hello 还在么？
+
+Follower crash
+F_3  crash重新启动后如何平衡数据.
+prevLogIndex
+
+Network Partition
+正常情况
+Heartbaet & commit
+
+网络分区
+两个人怎么够法定人数! ! !
+
+Vote Granted
+Request Vote
+
+新集群正常
+两个人怎么够法定人数! ! !
+Heartbeat & Log entry & commit
+
+网络恢复
+网络好了后, 开始抢夺LeaderLe_1 term 小于 Le_2 !
+Heartbeart & Append Log Entries
+
+一致性
+Heartbeat & Log entry & commit
+
+冲突Split brain
+如符合法定人数并产生了N条数据 与 新集群怎么保持数据一致性
+覆盖 VS 合并 ?
+被分区前有些node没有收到commit ?
+timer check
+
+预防Split brain
+单播制定节点
+指定法定人数 , 每次add\reduce都需要更改
+加大timeout , retry
+统一 client 入口 , But ⋯
+监控脑裂情况, 反查各个node的leader是否一致
+
+复杂一致性
+Log compress
+Snapshot
+Last included index : 6
+Last included term : 80
+state macheie state:
+
+--------------------------
+
 
  */

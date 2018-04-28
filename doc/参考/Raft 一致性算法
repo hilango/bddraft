@@ -1,0 +1,284 @@
+https://blog.csdn.net/coledaddy/article/details/50975712
+
+
+
+Raft 一致性算法
+
+        状态机replicated state machine
+        实际可用一致性算法特性
+        raft
+        leader 选举leader election
+        日志复制log replication
+        安全safety
+        节点变化membership changes
+        日志压缩
+        特性novel feature
+
+状态机(replicated state machine)
+
+RSM典型实现采用复制log(replicated log)
+
+RSM
+
+每一个server上的存储的命令(commands)log都相同，且按相同的顺序执行命令。每个server都具有确定
+
+性，计算同样的状态信息，因此其输出也是一致的。保证复制日志的一致性就是一致性算法的主要任务
+实际可用一致性算法特性
+
+    确保安全（在网络延迟、分裂、丢包、重复、重排序情况下都不会返回不一致的结果）
+    在多数节点可以操作的情况下，总体可用
+    不依赖时间去保证日志的一致性
+    少数慢节点不影响整体系统性能
+
+raft
+
+https://raft.github.io/
+
+http://thesecretlivesofdata.com/raft/
+
+raft的出现其主要的目的使一致性算法能运用实际的系统当中，而且更具有可理解性，相比于Paxos算法(比
+
+较难理解，需要复杂的改动才能运用实际系统当中)
+
+raft 3种状态
+
+    leader
+    一般正常情况下只有一个leader，其他的都是follower。
+    leader处理所有客户端调用请求，如果客户端连的是follower，由follower转给leader
+    follower
+    follower 是个被动角色：只对leader以及candidate的请求进行响应
+    candidate
+    作为leader的候选
+
+terms：关键作用是确定过期信息
+
+Terms：Raft将时间分成任意长度的，连续不断的整数。terms在raft中作为Logical clock，使所有server发现过期信息如废弃的leader等。每一个server存储当前的term，且随着时间单调递增。server的当前term可以被
+
+改变，在server之间通信(RPCs)当中：
+
+如果一个server当前的term小于其他server的，会用最大的term替换当前的term；
+
+如果一个候选server或leader的当前term已经过期，它们会立即转化成follower的状态；
+
+如果server收到过期term的请求，将会被拒绝。
+
+这里写图片描述
+
+RPCs
+
+Raft server之间通信采用远程调用方式
+
+    RequestVote
+    在选举阶段由所有候选者初始化
+    AppendEntries
+    由leader初始在复制log到其他server和做heartbeat（没有log entries）
+    Transferring snapshots
+
+server如果没有收到RPC的回复，会及时重试，RPC请求都是并行发出已确保最好的性能。
+leader 选举(leader election)
+
+raft采用心跳的机制去触发leader选举。
+
+server 已 follower的状态启动。server会一直处于follower状态，在能收到从leader或候选者来的正常RPCs请求。
+
+leader会周期的发送心跳给所有的follower状态的节点，以维护自己的leader角色。如果一个follower节点
+
+在超过一个election timeout的时间内未收到心跳会认为没有可用的leader，会开始选举一个新的leader。
+
+开始一次选举，follower节点将当前的term加1，并且转化成候选者(candidate)。紧接着会给自己投一票，
+
+同时会并行的给其他节点发送RequestVote RPCs。candidate状态的节点会一直处于该状态直到一下任何一点发生
+
+会触发candidate节点改变状态的任意条件：
+
+    赢得选举成为leader：获得大多数投票在一个term内
+    其他节点成为leader
+    一段时间后，没有节点选举胜出
+
+投票：一个节点最多只能投一票，先到先得的原则[safety额外保障]
+
+Election Safety:在一个给定的term时间内最多只能有一个leader产生
+
+在等待投票的过程中，candidate节点可能会收到另外一个号称自己是leader的AppendEntries RPC.如果该
+
+leader节点的term(包含在RPC当中)大于等于收到AppendEntries RPC的candidate节点的当前term。
+
+则candidate节点承认其leader角色，并退居follower角色。
+
+candidate节点在选举中可能即没有选举成功也没有失败，打成了平手：
+
+多个follower 同时转化成了candidate，投票可能会分裂导致没有一个candidate能获得大多数投票。
+
+当此情况出现后，每个candidate将会time out 并开始新的选举并将自己的term加1.必须采取其他措施
+
+否则这种投票僵持的结果可能会一直持续下去。
+
+保障措施：raft采用随机的选举超时时间去确保分裂投票很少并能很快解决。随机超时时间从一个固定
+
+的区间产生[T,2T](e.g,150-300ms)。
+
+角色转化阶段follower 转化成candidate(first place.扼杀在摇篮中，只有一个candidate)：采用保障措施
+
+(randomized election timeout) 这样会使各个节点间在绝大多数的场景下只有一个节点超时,超时的
+
+节点成为candidate获得选举胜利成为leader并往其他节点发送心跳，在他们超时之前。
+
+出现了分裂投票(多candidate，而且是平手):采用保障措施(randomized election timeout),每个candidate
+
+节点采用随机超时时间开始选举并一直处于等待状态在超时时间耗尽开启下一次新的选举前。这样会减小在
+
+一次新的选举中再次产生分裂投票的情况。
+
+这里写图片描述
+日志复制(log replication)
+
+leader产生后，开始接受客户端的请求。客户端的每次请求都包含有一个要在所有状态机rsm上执行的命令command。
+
+leader将这些command做为新的log条目追加到自己的日志当中，然后并行分发AppendEntries RPCs到其他节点使其复制这个日志条目。
+
+但这个日志条目被安全的复制后，leader会将该条目应用到自己的状态机中进行执行操作，然后在返回给客户端
+
+leader先commit然后在rsm执行操作，最后在返回给调用方
+
+如果follower节点crash或执行的比较慢或网络丢包，leader或一直重试发送AppendEntries RPCs
+
+(甚至在已经对客户端进行了响应后，仍然会重试)直到所有follower节点都存储这些日志条目。
+
+日志条目包含term，可以用其检测日志中的不一致性。如下图：
+
+这里写图片描述
+
+Raft会确保committed的日志条目持久化，并在所有可用的节点最终被执行其中的command。
+
+leader追踪要被commit的最高log index对应的日志条目，leader将这个log index包含在之后的AppendEntries RPCs(包括心跳)中。
+
+prevLogIndex
+
+prevLogTerm
+
+一旦follower节点得知日志条目已经committed.follower节点会将这个日志条目应用到本地的状态机中（按日志顺序）
+
+Log Matching Property
+
+    在不同的日志中的两个日志条目如果log index 和term都相同，则日志条目中存储着相同的command
+
+    leader在一个term内一个log index最多创建一个条目并且在日志中永远不改变位置
+
+    在不同的日志中的两个日志条目如果log index 和term都相同，则在此日志条目前的所有日志条目都一致
+    (如果一个日志条目被提交，它之前所有的日志条目都应该是被提交的)
+
+    这点通过由AppendEntries来执行的简单一致性检查保障：正在发送的AppendEntries RPC,leader包含有条目的log index(prevLogIndex)和term(prevLogTerm)优先于新的条目。如果follower节点在其日志中没有找到log index 和 term相同的条目，follower节点会拒绝这些新的条目。
+
+leader处理日志不一致的措施：
+
+leader强制follower节点复制其日志。也就意味着follower中冲突的日志条目就会被覆盖掉。[safety加上一个限制，这个操作将是安全的]
+
+leader节点找到与follower节点一致的最近的日志条目，将位于此条目后的所有日志条目删除。这些操作都是对一致性检查做出的响应中触发的。
+
+怎么找最近一致的点：
+
+leader节点为每一个follower节点维护了一个nextIndex.当一个节点选举成为leader后，leader 为所有
+
+follower 维护的nextIndex都是leader节点日志最新index值的后一个值(即 last index + 1)
+
+这里写图片描述
+
+如果follower节点与leader日志不一致，AppendEntries一致性检查将在下一次AppendEntries RPC失败。在follower拒绝后，
+
+leader将nextIndex减1，然后在重试AppendEntries RPC.最终nextIndex会到达一个两者日志匹配的点。找到后，
+
+删除冲突日志条目和追加从leader中过来的日志的AppendEntries将会成功。一旦成功，follower与leader两者日志一致，
+
+在接下来的其他term也将仍然按此逻辑进行。
+
+Leader Append-Only原则：leader永远不会覆盖或删除自己的日志
+安全(safety)
+
+选举限制(Election restriction)
+
+Raft采用一个比较简单的方法，在选举的阶段每次新产生的leader都必须包含之前term已经处于committed状态的所有日志条目。日志的流向，只有从leader复制到follower，且leader永远不会覆盖自己存在的日志条目。
+未包含全部已经提交的日志条目的candidate，raft在投票阶段不容许其选举成功。一个candidate必须与集群中的其他节点建立连接，已获取更多的投票来到达选举成功。在这些节点中必须至少有一个包含了每次被提交的日志条目。candidate 的 RequestVote RPC:RPC中包含有candidate的日志信息(lastLogIndex,lastLogTerm)，follower发现如果自己的日志比candidate的更新，则会拒绝请请求。
+
+    如何判断谁的log最新，通过比较两个log的最后(末尾)的条目的index和term。
+    1、如果两者的term不同，则term大的则是最新的日志
+    2、如果两者的的term相同，则谁的日志更长（即index 更大）就是最新的日志
+
+提交之前terms的条目[?]
+
+leader如果在提交条目前crash了，后续leader将试图完成对这个条目的复制。
+
+安全论证
+
+follower 和 candidate crash掉
+follower或candidate crash相比leader处理起来容易的多。如果这两种节点crash后，RequestVote和AppendEntries rpc
+
+会发送失败。Raft处理这种失败采用一直持续的重试机制。如果节点重启，RPC操作会成功完成。如果在节点完成了RPC请求但在
+
+响应前crash了，它将会收到同样的RPC请求在其重启后。Raft RPCs是幂等的，所以没有什么影响。
+
+Timing与可用性
+
+安全（saftey）不能依赖timing是rafte的一个要求点。然而，可用性(系统及时响应客户端的请求)不可避免的依赖于timing。
+
+leader 选举，在其中timing是非常关键的地方。只要系统满足如下timing必要条件，raft就能选举并维护一个稳定的leader。
+
+broadcastTime << electionTimeout << MTBF
+
+    broadcastTime:并行发送RPCs到集群中的每一个节点的发送以及收到他们响应的平均时间。
+    electionTimeout:leader选举中的timeout
+    MTBF:对应一个节点来说，MTBF是其两次失败之间时间间隔的平均值
+
+broadcastTime 小于等于electionTimeuot，这样leader才能稳定的往所有follower节点 发送心跳消息，同时也使分裂投票成为不可能。
+eletionTimeou小于等于MTBF，才能是集群稳定的运行。但leader crash后，整个集群只会在一个大概的electionTimout时间。
+
+不可用，raft会是这种情况在整个时间中只会占用很少的一小部分
+
+boradcastTime和MTBF是潜在的两个属性，不是强要求的。而election timout 则是必须的。
+
+Raft Rpcs 要求消息的接收者在一些信息存储到稳定的存储当中，因此broadcast time 的范围可能是在0.5ms到20ms间，取决于其存储相关技术。election timeout 则可能位于10ms到500ms中的某个位置。而
+MTBF可能到达几个月甚至更长(?),因此很容易满足timing的要求。
+节点变化(membership changes)
+
+为了是集群结构动态改变的机制是安全的，在同一个term，角色 转变的过程中，不能产生两个leader.
+
+不幸的是，任何方式方法节点从直接从老的结构配置切换到新的结构都是不安全的。不可能把所有节点已原子的方式立马切换过去。因此集群在转换过程当中，存在分裂成两个独立的多数的可能性。如下：从3个节点扩容成5个节点。
+
+这里写图片描述
+
+为了确保动态调整结构 ，增减节点安全，必须采用两阶段的方式(two-phase).
+
+raft采用的两阶段方式：
+
+    切换到一个过渡型的结构，称之为joint consensus(联合一致性)
+    一旦joint consensus已经被提交，切换到新的结构
+
+joint consensus 联合老的和新的结构
+
+    日志条目复制到处于两种结构的所有节点中
+    两种结构中的任何一个节点都可能成为leader
+    一致同意(包括选举和条目的提交)需要来自两个独立的大多数(老的和新的)。(即需要两个来达成一致)
+
+joint consensus可以是集群继续接受客户端的请求，尽管集群结构在改变。
+
+集群的结构调整已一种特殊的条目在复制的日志中进行存储和通信。
+
+这里写图片描述
+
+虚线表示配置的日志条目已经被创建但是还没有提交。实线表示最新被提交的配置条目
+
+需要处理的3个问题在结构配置更改
+
+    新加入的节点可能是存储和日志条目没有初始化的。如果加入集群，新加入的节点需要比较长的时间去
+    追赶上来。在此期间，它也许不可能去提交新的日志条目。为了避免可用性存在缺口。raft应用了一个额外的阶段在配置改变前，在此阶段期间新节点不作为可以投票的成员节点(leader复制日志到它们上面，但它们不会作为多数的一部分)一旦新加入的节点日志条目追赶上来，和其他节点保持一致时，配置更改可以继续进行
+    集群新的leader 可能不是新的结构配置中的节点。如果是这种情况，leader节点会退下来，回到follower状态，一旦它将Cnew配置阶段的日志条目提交后。
+    被删除的节点(不在新的结构配置当中的节点)能破坏集群。因为这些节点将不在接收心跳信息，以至于在timeout后然后开启新的选举。它们会发带有新的term的RequestVote RPCs，这样会导致现有leader转变成follower节点。新的leader最终会被选举出来，但是被移除的节点又将timeout，又开启新一轮的选举，导致集群可用性极低。为了防止这个问题，其他节点当他们认为当前leader仍然存在时，会忽略RequestVote RPCs,如果一个节点在接收当前leader的最小的election timeout没有结束时，收到了RequestVote RPCs，它不会更新其term或者不会给予投票。这不会影响正常的选举，因为在正常的选举中每个节点都会至少等一个最小的election timeout才会开始新的选举。这样就会避免移除的节点破坏集群：如果一个leader能收到其他节点的心跳响应，它就不会被大的term请求罢免。
+
+日志压缩
+
+这里写图片描述
+特性(novel feature)
+
+    Strong leader
+    Leader election
+    Membership changes
+

@@ -1,0 +1,7 @@
+{{log entry
+command term //标示是那一轮选举
+index  //每次选举都会递增
+
+}}
+
+
